@@ -655,7 +655,9 @@ func (t *TFCTrigger) triggerRunForWorkspace(ctx context.Context, cfgWS *TFCWorks
 	if t.GetAction() == ApplyAction {
 		isApply = true
 	} else if t.GetAction() != PlanAction {
-		return fmt.Errorf("run action was not apply or plan. %w", err)
+		// Unsupported action — retrying won't change it. Mark permanent so
+		// the worker ACKs and stops redelivering.
+		return fmt.Errorf("run action was not apply or plan. %w", utils.ErrPermanent)
 	}
 	// If the workspace is locked tell the user and don't queue a run
 	// Otherwise, TFC wil queue an apply, which might put them out of order
@@ -664,10 +666,17 @@ func (t *TFCTrigger) triggerRunForWorkspace(ctx context.Context, cfgWS *TFCWorks
 		if ws.Locked {
 			// Surface the tag-based locking MR too if we have one, so the user
 			// has something actionable to investigate alongside the TFC lock.
+			//
+			// Wrap with utils.ErrPermanent so the gitlab_hooks worker ACKs the
+			// note event instead of letting JetStream redeliver every 4s. The
+			// previous behavior (using a stale nil `err` in %w) both produced
+			// the "%!w(<nil>)" cosmetic glitch AND left the error retryable,
+			// which is what created the 30+ duplicate "locked workspace"
+			// comment storms observed on PEN-4703 (see MR !2224).
 			if lockingMR != "" {
-				return fmt.Errorf("refusing to Apply changes to a locked workspace (also tagged by MR %s). %w", lockingMR, err)
+				return fmt.Errorf("refusing to Apply changes to a locked workspace (also tagged by MR %s). %w", lockingMR, utils.ErrPermanent)
 			}
-			return fmt.Errorf("refusing to Apply changes to a locked workspace. %w", err)
+			return fmt.Errorf("refusing to Apply changes to a locked workspace. %w", utils.ErrPermanent)
 		} else if lockingMR != "" {
 			// Check if locking MR is already merged/closed (stale lock)
 			lockingMRIID, convErr := strconv.Atoi(lockingMR)

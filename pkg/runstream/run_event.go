@@ -64,9 +64,30 @@ func (s *Stream) PublishTFRunEvent(ctx context.Context, re RunEvent) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.js.Publish(fmt.Sprintf("%s.%s", RunEventsStreamName, rmd.GetVcsProvider()), b)
+
+	// Anchor JetStream dedup to (runID, newStatus). TFC fires a webhook for
+	// every configured notification trigger, and several triggers resolve to
+	// the same RunStatus over the run's lifecycle (e.g. plan_queued, planning,
+	// cost_estimating, policy_checking can all surface as `planning` in the
+	// notification payload). Without this header, each redundant webhook
+	// produced its own TFRunEvent and a duplicate GitLab reply.
+	// Combined with the Duplicates window on the stream (see
+	// configureTFRunEventsStream), this collapses retries and same-status
+	// redeliveries server-side.
+	msgID := tfRunEventMsgID(re.GetRunID(), re.GetNewStatus())
+	_, err = s.js.Publish(
+		fmt.Sprintf("%s.%s", RunEventsStreamName, rmd.GetVcsProvider()),
+		b,
+		nats.MsgId(msgID),
+	)
 
 	return err
+}
+
+// tfRunEventMsgID is the JetStream dedup key for a TFRunEvent. Exported as a
+// helper so tests and other publishers (e.g. polling) can compute the same key.
+func tfRunEventMsgID(runID, newStatus string) string {
+	return runID + ":" + newStatus
 }
 
 func (s *Stream) SubscribeTFRunEvents(vcsProvider string, cb func(run RunEvent) bool) (closer func(), err error) {
@@ -132,6 +153,12 @@ func (s *Stream) SubscribeTFRunEvents(vcsProvider string, cb func(run RunEvent) 
 	return closer, nil
 }
 
+// tfRunEventDuplicatesWindow caps how long JetStream remembers a Nats-Msg-Id
+// for dedup. Set to 30 minutes: longer than the worst-case time a single TFC
+// run dwells in one logical status (typical apply finishes in well under 10
+// minutes; bumped to 30m for slow workspaces and long-running policy checks).
+const tfRunEventDuplicatesWindow = 30 * time.Minute
+
 func configureTFRunEventsStream(js nats.JetStreamContext) {
 	sCfg := &nats.StreamConfig{
 		Name:        RunEventsStreamName,
@@ -141,6 +168,7 @@ func configureTFRunEventsStream(js nats.JetStreamContext) {
 		MaxMsgs:     10240,
 		MaxAge:      time.Hour * 6,
 		Replicas:    1,
+		Duplicates:  tfRunEventDuplicatesWindow,
 	}
 
 	addOrUpdateStream(js, sCfg)
