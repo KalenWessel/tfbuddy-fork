@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/pflag"
@@ -34,6 +35,7 @@ const (
 	KeyWorkspaceJetStreamReplicas = "workspace-jetstream-replicas"
 	KeyTFCRateLimitRPS            = "tfc-rate-limit-rps"
 	KeyTFCRateLimitBurst          = "tfc-rate-limit-burst"
+	KeyJetStreamDedupWindow       = "jetstream-dedup-window"
 )
 
 type Config struct {
@@ -58,8 +60,9 @@ type Config struct {
 	GitlabCloneDepth           int      `mapstructure:"gitlab-clone-depth"`
 	WorkspaceFanoutEnabled     bool     `mapstructure:"workspace-fanout-enabled"`
 	WorkspaceJetStreamReplicas int      `mapstructure:"workspace-jetstream-replicas"`
-	TFCRateLimitRPS            int      `mapstructure:"tfc-rate-limit-rps"`
-	TFCRateLimitBurst          int      `mapstructure:"tfc-rate-limit-burst"`
+	TFCRateLimitRPS            int           `mapstructure:"tfc-rate-limit-rps"`
+	TFCRateLimitBurst          int           `mapstructure:"tfc-rate-limit-burst"`
+	JetStreamDedupWindow       time.Duration `mapstructure:"jetstream-dedup-window"`
 }
 
 var C Config
@@ -95,6 +98,13 @@ var bindings = []binding{
 	{key: KeyWorkspaceJetStreamReplicas, defaultValue: 1, description: "JetStream replica count for the workspace-trigger stream. Use 1 for single-node NATS or local dev; set to your NATS cluster size (often 3) in production for durability."},
 	{key: KeyTFCRateLimitRPS, defaultValue: 30, description: "Client-side rate limit (requests per second) for the Terraform Cloud API. Tuned to match TFC's documented per-token limit and prevent 429s when many workspaces are triggered concurrently."},
 	{key: KeyTFCRateLimitBurst, defaultValue: 30, description: "Burst capacity for the TFC API token-bucket rate limiter."},
+	// Dedup window for NATS JetStream-backed streams that use Nats-Msg-Id. Applied
+	// to RUN_EVENTS (TFC notification publishes, dedup key runID:status) and
+	// TFBUDDY_WORKSPACE_TRIGGERS (per-workspace MR fan-out, dedup key
+	// deliveryID/workspace/org). Long enough to cover the slowest plausible same-key
+	// re-fire (e.g. TFC firing multiple notification triggers across a long
+	// planning phase), short enough that JetStream's interest store stays bounded.
+	{key: KeyJetStreamDedupWindow, defaultValue: 30 * time.Minute, description: "Window during which JetStream remembers a Nats-Msg-Id to dedupe republishes. Applied to RUN_EVENTS and TFBUDDY_WORKSPACE_TRIGGERS streams. Accepts a Go duration string (e.g. 30m, 1h)."},
 }
 
 func init() {
@@ -152,6 +162,8 @@ func RegisterFlags(fs *pflag.FlagSet) error {
 			fs.Int(item.key, def, item.description)
 		case []string:
 			fs.StringSlice(item.key, def, item.description)
+		case time.Duration:
+			fs.Duration(item.key, def, item.description)
 		default:
 			continue
 		}
@@ -261,6 +273,8 @@ func defaultValueString(value any) string {
 			return ""
 		}
 		return strings.Join(v, ",")
+	case time.Duration:
+		return v.String()
 	default:
 		return ""
 	}

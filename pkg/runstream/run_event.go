@@ -84,8 +84,9 @@ func (s *Stream) PublishTFRunEvent(ctx context.Context, re RunEvent) error {
 	return err
 }
 
-// tfRunEventMsgID is the JetStream dedup key for a TFRunEvent. Exported as a
-// helper so tests and other publishers (e.g. polling) can compute the same key.
+// tfRunEventMsgID is the JetStream dedup key for a TFRunEvent. Package-level
+// helper so the publish path and the in-package tests stay in lockstep — keep
+// it unexported until another package actually needs to compute the same key.
 func tfRunEventMsgID(runID, newStatus string) string {
 	return runID + ":" + newStatus
 }
@@ -153,13 +154,11 @@ func (s *Stream) SubscribeTFRunEvents(vcsProvider string, cb func(run RunEvent) 
 	return closer, nil
 }
 
-// tfRunEventDuplicatesWindow caps how long JetStream remembers a Nats-Msg-Id
-// for dedup. Set to 30 minutes: longer than the worst-case time a single TFC
-// run dwells in one logical status (typical apply finishes in well under 10
-// minutes; bumped to 30m for slow workspaces and long-running policy checks).
-const tfRunEventDuplicatesWindow = 30 * time.Minute
-
-func configureTFRunEventsStream(js nats.JetStreamContext) {
+// configureTFRunEventsStream provisions the RUN_EVENTS stream. dedupWindow
+// sets the JetStream Duplicates window used in tandem with the Nats-Msg-Id
+// stamped by PublishTFRunEvent. Operators tune the window via the
+// TFBUDDY_JETSTREAM_DEDUP_WINDOW env var; tests pass an explicit value.
+func configureTFRunEventsStream(js nats.JetStreamContext, dedupWindow time.Duration) {
 	sCfg := &nats.StreamConfig{
 		Name:        RunEventsStreamName,
 		Description: "Terraform Cloud Run Notifications",
@@ -168,7 +167,7 @@ func configureTFRunEventsStream(js nats.JetStreamContext) {
 		MaxMsgs:     10240,
 		MaxAge:      time.Hour * 6,
 		Replicas:    1,
-		Duplicates:  tfRunEventDuplicatesWindow,
+		Duplicates:  dedupWindow,
 	}
 
 	addOrUpdateStream(js, sCfg)

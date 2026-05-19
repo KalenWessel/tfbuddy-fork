@@ -2,7 +2,6 @@ package runstream
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -15,11 +14,8 @@ import (
 // comments — TFC fires a webhook for every notification trigger, and several
 // triggers can resolve to the same RunStatus over the run's lifecycle.
 func Test_PublishTFRunEvent_DedupesSameRunIDAndStatus(t *testing.T) {
-	const port = 8371
-	srv := RunServerOnPort(port)
-	defer srv.Shutdown()
-
-	nc := testConnect(t, fmt.Sprintf("nats://127.0.0.1:%d", port))
+	_, url := startTestNATS(t)
+	nc := testConnect(t, url)
 	defer nc.Close()
 	js := testGetJetstreamContext(t, nc)
 
@@ -41,11 +37,8 @@ func Test_PublishTFRunEvent_DedupesSameRunIDAndStatus(t *testing.T) {
 // must all land on the stream — that's how real state transitions reach the
 // GitLab reply pipeline.
 func Test_PublishTFRunEvent_KeepsDistinctStatuses(t *testing.T) {
-	const port = 8372
-	srv := RunServerOnPort(port)
-	defer srv.Shutdown()
-
-	nc := testConnect(t, fmt.Sprintf("nats://127.0.0.1:%d", port))
+	_, url := startTestNATS(t)
+	nc := testConnect(t, url)
 	defer nc.Close()
 	js := testGetJetstreamContext(t, nc)
 
@@ -65,11 +58,8 @@ func Test_PublishTFRunEvent_KeepsDistinctStatuses(t *testing.T) {
 // Test_PublishTFRunEvent_DedupesAcrossRuns verifies that the dedup is keyed
 // to runID so different runs at the same status are not collapsed.
 func Test_PublishTFRunEvent_DedupesAcrossRuns(t *testing.T) {
-	const port = 8373
-	srv := RunServerOnPort(port)
-	defer srv.Shutdown()
-
-	nc := testConnect(t, fmt.Sprintf("nats://127.0.0.1:%d", port))
+	_, url := startTestNATS(t)
+	nc := testConnect(t, url)
 	defer nc.Close()
 	js := testGetJetstreamContext(t, nc)
 
@@ -94,11 +84,8 @@ func Test_PublishTFRunEvent_DedupesAcrossRuns(t *testing.T) {
 // status transitions before the apply run progresses to applying -> applied.
 // Each run must own its own set of dedup messages — none collide.
 func Test_PublishTFRunEvent_PlanThenApplyFlow(t *testing.T) {
-	const port = 8374
-	srv := RunServerOnPort(port)
-	defer srv.Shutdown()
-
-	nc := testConnect(t, fmt.Sprintf("nats://127.0.0.1:%d", port))
+	_, url := startTestNATS(t)
+	nc := testConnect(t, url)
 	defer nc.Close()
 	js := testGetJetstreamContext(t, nc)
 
@@ -158,7 +145,7 @@ func Test_tfRunEventMsgID(t *testing.T) {
 // it on entry so each test starts at zero messages and zero dedup history.
 func newTestStream(t *testing.T, js nats.JetStreamContext) *Stream {
 	t.Helper()
-	configureTFRunEventsStream(js)
+	configureTFRunEventsStream(js, testDedupWindow)
 	if err := js.PurgeStream(RunEventsStreamName); err != nil {
 		t.Fatalf("could not purge %s before test: %v", RunEventsStreamName, err)
 	}

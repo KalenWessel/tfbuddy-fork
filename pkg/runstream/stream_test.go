@@ -2,31 +2,40 @@ package runstream
 
 import (
 	"fmt"
+	"net"
 	"testing"
+	"time"
 
 	"github.com/nats-io/nats-server/v2/server"
 	natstest "github.com/nats-io/nats-server/v2/test"
 	"github.com/nats-io/nats.go"
 )
 
-const TEST_PORT = 8369
+// testDedupWindow is the JetStream Duplicates window used by configureTFRunEventsStream
+// in tests. Pick a value that comfortably exceeds the duration of a single test.
+const testDedupWindow = 30 * time.Minute
 
-func RunServerOnPort(port int) *server.Server {
+// startTestNATS spins up an in-process NATS server bound to an OS-allocated
+// port (avoiding the flake risk of hard-coded ports when CI runs tests in
+// parallel or when local dev already has something on 8369). The server is
+// shut down via t.Cleanup so tests stay lean.
+func startTestNATS(t *testing.T) (*server.Server, string) {
+	t.Helper()
 	opts := natstest.DefaultTestOptions
-	opts.Port = port
+	opts.Port = -1 // ask the OS for a free port
 	opts.JetStream = true
-	return RunServerWithOptions(&opts)
-}
+	srv := natstest.RunServer(&opts)
+	t.Cleanup(srv.Shutdown)
 
-func RunServerWithOptions(opts *server.Options) *server.Server {
-	return natstest.RunServer(opts)
+	addr, ok := srv.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("NATS test server bound to unexpected addr type %T", srv.Addr())
+	}
+	return srv, fmt.Sprintf("nats://127.0.0.1:%d", addr.Port)
 }
 
 func Test_configureRunPollingKVStore(t *testing.T) {
-	s := RunServerOnPort(TEST_PORT)
-	defer s.Shutdown()
-
-	url := fmt.Sprintf("nats://127.0.0.1:%d", TEST_PORT)
+	_, url := startTestNATS(t)
 	nc := testConnect(t, url)
 	defer nc.Close()
 
@@ -60,17 +69,15 @@ func Test_configureRunPollingKVStore(t *testing.T) {
 }
 
 func Test_configureTFRunEventsStream(t *testing.T) {
-	s := RunServerOnPort(TEST_PORT)
-	defer s.Shutdown()
-
-	url := fmt.Sprintf("nats://127.0.0.1:%d", TEST_PORT)
+	_, url := startTestNATS(t)
 	nc := testConnect(t, url)
 	defer nc.Close()
 
 	js := testGetJetstreamContext(t, nc)
 
 	type args struct {
-		js nats.JetStreamContext
+		js          nats.JetStreamContext
+		dedupWindow time.Duration
 	}
 	tests := []struct {
 		name string
@@ -79,19 +86,21 @@ func Test_configureTFRunEventsStream(t *testing.T) {
 		{
 			"create",
 			args{
-				js: js,
+				js:          js,
+				dedupWindow: testDedupWindow,
 			},
 		},
 		{
 			"update",
 			args{
-				js: js,
+				js:          js,
+				dedupWindow: testDedupWindow,
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			configureTFRunEventsStream(tt.args.js)
+			configureTFRunEventsStream(tt.args.js, tt.args.dedupWindow)
 		})
 	}
 }

@@ -86,7 +86,12 @@ type WorkspaceStream struct {
 	stream *gongs.GenericStream[WorkspaceTriggerMsg, *WorkspaceTriggerMsg]
 }
 
-func NewWorkspaceStream(js nats.JetStreamContext, workspaceStreamReplicas int) (*WorkspaceStream, error) {
+// NewWorkspaceStream provisions the per-workspace fan-out stream. dedupWindow
+// sets the JetStream Duplicates window used in tandem with the Nats-Msg-Id
+// stamped by gongs from WorkspaceTriggerMsg.GetId — without Duplicates set,
+// the per-delivery dedup is silently inert at the server. Operators tune the
+// window via TFBUDDY_JETSTREAM_DEDUP_WINDOW.
+func NewWorkspaceStream(js nats.JetStreamContext, workspaceStreamReplicas int, dedupWindow time.Duration) (*WorkspaceStream, error) {
 	cfg := &nats.StreamConfig{
 		Name:        WorkspaceTriggerStreamName,
 		Description: "Fan-out queue: one message per workspace dispatched by an MR/PR trigger",
@@ -95,6 +100,7 @@ func NewWorkspaceStream(js nats.JetStreamContext, workspaceStreamReplicas int) (
 		MaxMsgs:     workspaceStreamMaxMsgs,
 		MaxAge:      workspaceStreamMaxAge,
 		Replicas:    workspaceStreamReplicas,
+		Duplicates:  dedupWindow,
 	}
 
 	info, err := js.StreamInfo(cfg.Name)
