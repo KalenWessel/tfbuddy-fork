@@ -261,6 +261,76 @@ func TestTFCEvents_SingleWorkspaceApply(t *testing.T) {
 
 }
 
+// TestTFCEvents_ApplyToLockedWorkspaceIsPermanent guards the fix for the
+// !2224 / PEN-4703 storm: a `tfc apply` aimed at an already-locked workspace
+// must return a permanent error (so the gitlab_hooks worker ACKs the note
+// event instead of allowing JetStream redelivery) AND the error string must
+// be clean — no "%!w(<nil>)" cosmetic glitch left from wrapping a nil err.
+//
+// Pre-fix, the workspace-locked branch did `fmt.Errorf("…%w", err)` where
+// `err` was the stale (and nil) result from a successful GetWorkspaceByName.
+// That produced both the "%!w(<nil>)" suffix in the user-facing comment and
+// — combined with the retry path — multi-dozen duplicate "locked workspace"
+// comments on the same MR.
+func TestTFCEvents_ApplyToLockedWorkspaceIsPermanent(t *testing.T) {
+	ws := &tfc_trigger.ProjectConfig{
+		Workspaces: []*tfc_trigger.TFCWorkspace{{
+			Name:         "service-tfbuddy",
+			Organization: "zapier-test",
+			Mode:         "apply-before-merge",
+		}}}
+
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+	testSuite := mocks.CreateTestSuite(mockCtrl, mocks.TestOverrides{ProjectConfig: ws}, t)
+
+	// Override the default unlocked workspace from InitTestSuite with one
+	// that's already locked, so triggerRunForWorkspace hits the refusal path.
+	testSuite.MockApiClient.EXPECT().
+		GetWorkspaceByName(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&tfe.Workspace{ID: "service-tfbuddy", Locked: true}, nil).
+		AnyTimes()
+	testSuite.MockGitRepo.EXPECT().GetModifiedFileNamesBetweenCommits(testSuite.MetaData.CommonSHA, "main").Return([]string{}, nil)
+	// Critically: no CreateRunFromSource expectation — the locked path must
+	// not start a TFC run.
+
+	testSuite.InitTestSuite()
+
+	tCfg, _ := tfc_trigger.NewTFCTriggerConfig(&tfc_trigger.TFCTriggerOptions{
+		Action:                   tfc_trigger.ApplyAction,
+		Branch:                   "test-branch",
+		CommitSHA:                "abcd12233",
+		ProjectNameWithNamespace: testSuite.MetaData.ProjectNameNS,
+		MergeRequestIID:          testSuite.MetaData.MRIID,
+		TriggerSource:            tfc_trigger.CommentTrigger,
+	})
+	trigger := tfc_trigger.NewTFCTrigger(config.C, testSuite.MockGitClient, testSuite.MockApiClient, testSuite.MockStreamClient, tCfg)
+	ctx, _ := otel.Tracer("FAKE").Start(context.Background(), "TEST")
+	triggeredWS, err := trigger.TriggerTFCEvents(ctx)
+	if err != nil {
+		t.Fatalf("TriggerTFCEvents returned unexpected top-level error: %v", err)
+	}
+	if triggeredWS == nil {
+		t.Fatal("expected TriggeredTFCWorkspaces, got nil")
+	}
+	if len(triggeredWS.Executed) != 0 {
+		t.Fatalf("expected no Executed workspaces (locked), got %v", triggeredWS.Executed)
+	}
+	if len(triggeredWS.Errored) != 1 {
+		t.Fatalf("expected exactly 1 Errored workspace, got %d", len(triggeredWS.Errored))
+	}
+	got := triggeredWS.Errored[0].Error
+	if !strings.Contains(got, "refusing to Apply changes to a locked workspace") {
+		t.Errorf("Errored message missing locked-workspace text: %q", got)
+	}
+	if !strings.Contains(got, "permanent error. cannot be retried") {
+		t.Errorf("Errored message missing permanent-error marker (would allow NATS redelivery): %q", got)
+	}
+	if strings.Contains(got, "%!w(<nil>)") || strings.Contains(got, "%!w") {
+		t.Errorf("Errored message still contains %%w formatting glitch: %q", got)
+	}
+}
+
 func TestTFCEvents_MultiWorkspaceApply(t *testing.T) {
 
 	ws := &tfc_trigger.ProjectConfig{

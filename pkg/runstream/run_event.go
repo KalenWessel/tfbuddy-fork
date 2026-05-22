@@ -64,9 +64,31 @@ func (s *Stream) PublishTFRunEvent(ctx context.Context, re RunEvent) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.js.Publish(fmt.Sprintf("%s.%s", RunEventsStreamName, rmd.GetVcsProvider()), b)
+
+	// Anchor JetStream dedup to (runID, newStatus). TFC fires a webhook for
+	// every configured notification trigger, and several triggers resolve to
+	// the same RunStatus over the run's lifecycle (e.g. plan_queued, planning,
+	// cost_estimating, policy_checking can all surface as `planning` in the
+	// notification payload). Without this header, each redundant webhook
+	// produced its own TFRunEvent and a duplicate GitLab reply.
+	// Combined with the Duplicates window on the stream (see
+	// configureTFRunEventsStream), this collapses retries and same-status
+	// redeliveries server-side.
+	msgID := tfRunEventMsgID(re.GetRunID(), re.GetNewStatus())
+	_, err = s.js.Publish(
+		fmt.Sprintf("%s.%s", RunEventsStreamName, rmd.GetVcsProvider()),
+		b,
+		nats.MsgId(msgID),
+	)
 
 	return err
+}
+
+// tfRunEventMsgID is the JetStream dedup key for a TFRunEvent. Package-level
+// helper so the publish path and the in-package tests stay in lockstep — keep
+// it unexported until another package actually needs to compute the same key.
+func tfRunEventMsgID(runID, newStatus string) string {
+	return runID + ":" + newStatus
 }
 
 func (s *Stream) SubscribeTFRunEvents(vcsProvider string, cb func(run RunEvent) bool) (closer func(), err error) {
@@ -132,7 +154,11 @@ func (s *Stream) SubscribeTFRunEvents(vcsProvider string, cb func(run RunEvent) 
 	return closer, nil
 }
 
-func configureTFRunEventsStream(js nats.JetStreamContext) {
+// configureTFRunEventsStream provisions the RUN_EVENTS stream. dedupWindow
+// sets the JetStream Duplicates window used in tandem with the Nats-Msg-Id
+// stamped by PublishTFRunEvent. Operators tune the window via the
+// TFBUDDY_JETSTREAM_DEDUP_WINDOW env var; tests pass an explicit value.
+func configureTFRunEventsStream(js nats.JetStreamContext, dedupWindow time.Duration) {
 	sCfg := &nats.StreamConfig{
 		Name:        RunEventsStreamName,
 		Description: "Terraform Cloud Run Notifications",
@@ -141,6 +167,7 @@ func configureTFRunEventsStream(js nats.JetStreamContext) {
 		MaxMsgs:     10240,
 		MaxAge:      time.Hour * 6,
 		Replicas:    1,
+		Duplicates:  dedupWindow,
 	}
 
 	addOrUpdateStream(js, sCfg)

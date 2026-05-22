@@ -17,9 +17,13 @@ type Stream struct {
 	pollingKV  nats.KeyValue
 }
 
-func NewStream(js nats.JetStreamContext) StreamClient {
+// NewStream wires up the runstream JetStream client. dedupWindow is the
+// JetStream Duplicates window applied to the RUN_EVENTS stream so that
+// Nats-Msg-Id-based dedup actually fires server-side. Operators tune it via
+// TFBUDDY_JETSTREAM_DEDUP_WINDOW.
+func NewStream(js nats.JetStreamContext, dedupWindow time.Duration) StreamClient {
 
-	configureTFRunEventsStream(js)
+	configureTFRunEventsStream(js, dedupWindow)
 	configureTFRunPollingTaskStream(js)
 	kv, _ := configureTFRunMetadataKVStore(js)
 	pollingKV, _ := configureRunPollingKVStore(js)

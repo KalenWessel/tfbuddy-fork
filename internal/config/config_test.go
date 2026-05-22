@@ -3,6 +3,7 @@ package config
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -76,6 +77,23 @@ func TestDevModeDefaultsToFalse(t *testing.T) {
 
 	if C.DevMode {
 		t.Fatal("C.DevMode = true, want false")
+	}
+}
+
+func TestJetStreamDedupWindowDefaultsTo30Minutes(t *testing.T) {
+	resetViperForTest(t)
+
+	if got, want := C.JetStreamDedupWindow, 30*time.Minute; got != want {
+		t.Fatalf("C.JetStreamDedupWindow = %s, want %s", got, want)
+	}
+}
+
+func TestJetStreamDedupWindowCanBeSetFromEnv(t *testing.T) {
+	t.Setenv("TFBUDDY_JETSTREAM_DEDUP_WINDOW", "5m")
+	resetViperForTest(t)
+
+	if got, want := C.JetStreamDedupWindow, 5*time.Minute; got != want {
+		t.Fatalf("C.JetStreamDedupWindow = %s, want %s", got, want)
 	}
 }
 

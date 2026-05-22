@@ -46,7 +46,7 @@ func StartServer(cfg config.Config) {
 	}
 
 	hs := hooks_stream.NewHooksStream(nc)
-	rs := runstream.NewStream(js)
+	rs := runstream.NewStream(js, cfg.JetStreamDedupWindow)
 	health.AddReadinessCheck("nats-connection", tfnats.HealthcheckFn(nc))
 	health.AddLivenessCheck("nats-connection", tfnats.HealthcheckFn(nc))
 	health.AddLivenessCheck("runstream-streams", rs.HealthCheck)
@@ -61,7 +61,7 @@ func StartServer(cfg config.Config) {
 	// legacy inline path during rollout.
 	var workspaceStream tfc_trigger.WorkspacePublisher
 	if cfg.WorkspaceFanoutEnabled {
-		ws, err := tfc_trigger.NewWorkspaceStream(js, cfg.WorkspaceJetStreamReplicas)
+		ws, err := tfc_trigger.NewWorkspaceStream(js, cfg.WorkspaceJetStreamReplicas, cfg.JetStreamDedupWindow)
 		if err != nil {
 			log.Fatal().Err(err).Msg("could not configure workspace trigger stream")
 		}
