@@ -462,6 +462,21 @@ func (t *TFCTrigger) TriggerTFCEvents(ctx context.Context) (*TriggeredTFCWorkspa
 // Returning an error puts the workspace into status.Errored verbatim.
 type workspaceDispatchFn func(ctx context.Context, ws *TFCWorkspace) error
 
+// publishBlockedStatus publishes failing commit statuses for both plan and
+// apply of a blocked workspace so GitLab's required-status check gates the
+// merge. Without this the workspace has no commit status at all and GitLab
+// allows the merge despite the ⛔ MR comment. Logged-only on failure: the
+// MR comment already informs the user.
+func (t *TFCTrigger) publishBlockedStatus(ctx context.Context, workspace string) {
+	const description = "Blocked: target branch modified workspace paths since divergence."
+	for _, action := range []string{"plan", "apply"} {
+		name := fmt.Sprintf("TFC/%s/%s", action, workspace)
+		if err := t.gl.SetMergeRequestStatus(ctx, t.GetProjectNameWithNamespace(), t.GetCommitSHA(), name, "failed", description, ""); err != nil {
+			log.Error().Err(err).Str("ws", workspace).Str("action", action).Msg("could not publish blocked commit status")
+		}
+	}
+}
+
 func (t *TFCTrigger) dispatchWorkspaces(ctx context.Context, workspaces []*TFCWorkspace, blocked map[string]struct{}, dispatch workspaceDispatchFn) *TriggeredTFCWorkspaces {
 	status := &TriggeredTFCWorkspaces{
 		Errored:  make([]*ErroredWorkspace, 0),
@@ -483,6 +498,7 @@ func (t *TFCTrigger) dispatchWorkspaces(ctx context.Context, workspaces []*TFCWo
 				Name:  ws.Name,
 				Error: fmt.Sprintf("Blocked: workspace-relevant paths (dir: '%s', triggerDirs: %v) have been modified on the target branch since this branch diverged. Please rebase/merge the target branch to resolve this.", ws.Dir, ws.TriggerDirs),
 			})
+			t.publishBlockedStatus(ctx, ws.Name)
 			continue
 		}
 		if err := dispatch(ctx, ws); err != nil {

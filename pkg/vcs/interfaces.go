@@ -16,6 +16,11 @@ type GitClient interface {
 	ResolveMergeRequestDiscussion(context.Context, string, int, string) error
 	AddMergeRequestDiscussionReply(ctx context.Context, mrIID int, project, discussionID, comment string) (MRNote, error)
 	SetCommitStatus(ctx context.Context, projectWithNS string, commitSHA string, status CommitStatusOptions) (CommitStatus, error)
+	// SetMergeRequestStatus publishes a single named commit status for an MR
+	// without requiring a TFC run to exist. Used to mark workspaces as failed
+	// when tfbuddy decides not to run them (e.g., blocked by target-branch
+	// divergence) so GitLab's required-status check still gates the merge.
+	SetMergeRequestStatus(ctx context.Context, projectWithNS string, commitSHA string, name string, state string, description string, targetURL string) error
 	GetPipelinesForCommit(ctx context.Context, projectWithNS string, commitSHA string) ([]ProjectPipeline, error)
 	GetOldRunUrls(ctx context.Context, mrIID int, project string, rootCommentID int, workspace string, action string) (string, error)
 	MergeMR(ctx context.Context, mrIID int, project string) error
