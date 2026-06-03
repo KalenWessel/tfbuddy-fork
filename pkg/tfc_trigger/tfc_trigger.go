@@ -462,11 +462,9 @@ func (t *TFCTrigger) TriggerTFCEvents(ctx context.Context) (*TriggeredTFCWorkspa
 // Returning an error puts the workspace into status.Errored verbatim.
 type workspaceDispatchFn func(ctx context.Context, ws *TFCWorkspace) error
 
-// publishBlockedStatus publishes failing commit statuses for both plan and
-// apply of a blocked workspace so GitLab's required-status check gates the
-// merge. Without this the workspace has no commit status at all and GitLab
-// allows the merge despite the ⛔ MR comment. Logged-only on failure: the
-// MR comment already informs the user.
+// publishBlockedStatus sets TFC/plan and TFC/apply to failed so the merge gate
+// fires for a blocked workspace. Both are set to match the existing convention
+// where a pending plan pre-emptively marks apply as failed.
 func (t *TFCTrigger) publishBlockedStatus(ctx context.Context, workspace string) {
 	const description = "Blocked: target branch modified workspace paths since divergence."
 	for _, action := range []string{"plan", "apply"} {

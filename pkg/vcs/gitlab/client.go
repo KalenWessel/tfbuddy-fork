@@ -111,11 +111,9 @@ func (c *GitlabClient) SetCommitStatus(ctx context.Context, projectWithNS string
 	}, createBackOffWithRetries())
 }
 
-// SetMergeRequestStatus publishes a single commit status without requiring a
-// TFC run. Used to mark blocked workspaces as failed so GitLab's required
-// status check still gates the merge. Unlike updateStatus in mr_status_updater
-// this does not attach a pipeline ID — a commit-level status is enough to
-// gate the merge and avoids a 30s pipeline-lookup backoff for the block path.
+// SetMergeRequestStatus publishes a commit status without attaching a pipeline
+// ID. Commit-level status is enough to gate the merge and skips the 30s
+// pipeline-lookup backoff used by run-status updates.
 func (c *GitlabClient) SetMergeRequestStatus(ctx context.Context, projectWithNS, commitSHA, name, state, description, targetURL string) error {
 	_, span := otel.Tracer("TFC").Start(ctx, "SetMergeRequestStatus")
 	defer span.End()
