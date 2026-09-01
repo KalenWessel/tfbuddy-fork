@@ -5,6 +5,7 @@
 //
 //	mockgen -source interfaces.go -destination=../mocks/mock_vcs.go -package=mocks github.com/zapier/tfbuddy/pkg/vcs
 //
+
 // Package mocks is a generated GoMock package.
 package mocks
 
@@ -144,7 +145,7 @@ func (mr *MockGitClientMockRecorder) GetMergeRequestModifiedFiles(ctx, mrIID, pr
 }
 
 // GetOldRunUrls mocks base method.
-func (m *MockGitClient) GetOldRunUrls(ctx context.Context, mrIID int, project string, rootCommentID int, workspace string, action string) (string, error) {
+func (m *MockGitClient) GetOldRunUrls(ctx context.Context, mrIID int, project string, rootCommentID int, workspace, action string) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetOldRunUrls", ctx, mrIID, project, rootCommentID, workspace, action)
 	ret0, _ := ret[0].(string)
@@ -200,6 +201,20 @@ func (m *MockGitClient) MergeMR(ctx context.Context, mrIID int, project string) 
 func (mr *MockGitClientMockRecorder) MergeMR(ctx, mrIID, project any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MergeMR", reflect.TypeOf((*MockGitClient)(nil).MergeMR), ctx, mrIID, project)
+}
+
+// MergeMRAtSHA mocks base method.
+func (m *MockGitClient) MergeMRAtSHA(ctx context.Context, mrIID int, project, expectedSHA string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MergeMRAtSHA", ctx, mrIID, project, expectedSHA)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MergeMRAtSHA indicates an expected call of MergeMRAtSHA.
+func (mr *MockGitClientMockRecorder) MergeMRAtSHA(ctx, mrIID, project, expectedSHA any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MergeMRAtSHA", reflect.TypeOf((*MockGitClient)(nil).MergeMRAtSHA), ctx, mrIID, project, expectedSHA)
 }
 
 // ResolveMergeRequestDiscussion mocks base method.
@@ -526,20 +541,6 @@ func (mr *MockDetailedMRMockRecorder) GetAuthor() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthor", reflect.TypeOf((*MockDetailedMR)(nil).GetAuthor))
 }
 
-// GetState mocks base method.
-func (m *MockDetailedMR) GetState() string {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetState")
-	ret0, _ := ret[0].(string)
-	return ret0
-}
-
-// GetState indicates an expected call of GetState.
-func (mr *MockDetailedMRMockRecorder) GetState() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetState", reflect.TypeOf((*MockDetailedMR)(nil).GetState))
-}
-
 // GetInternalID mocks base method.
 func (m *MockDetailedMR) GetInternalID() int {
 	m.ctrl.T.Helper()
@@ -566,6 +567,20 @@ func (m *MockDetailedMR) GetSourceBranch() string {
 func (mr *MockDetailedMRMockRecorder) GetSourceBranch() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSourceBranch", reflect.TypeOf((*MockDetailedMR)(nil).GetSourceBranch))
+}
+
+// GetState mocks base method.
+func (m *MockDetailedMR) GetState() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetState")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetState indicates an expected call of GetState.
+func (mr *MockDetailedMRMockRecorder) GetState() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetState", reflect.TypeOf((*MockDetailedMR)(nil).GetState))
 }
 
 // GetTargetBranch mocks base method.

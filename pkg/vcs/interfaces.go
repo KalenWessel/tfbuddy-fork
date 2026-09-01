@@ -19,6 +19,7 @@ type GitClient interface {
 	GetPipelinesForCommit(ctx context.Context, projectWithNS string, commitSHA string) ([]ProjectPipeline, error)
 	GetOldRunUrls(ctx context.Context, mrIID int, project string, rootCommentID int, workspace string, action string) (string, error)
 	MergeMR(ctx context.Context, mrIID int, project string) error
+	MergeMRAtSHA(ctx context.Context, mrIID int, project, expectedSHA string) error
 }
 type GitRepo interface {
 	FetchUpstreamBranch(string) error
